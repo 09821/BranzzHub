@@ -1,0 +1,1159 @@
+-- PVP Trainer Op By Branzz - VERSÃO AVANÇADA
+-- Script completo com Desync Profissional
+
+local player = game.Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local character = player.Character or player.CharacterAdded:Wait()
+
+-- Variáveis de estado
+local markedPosition = nil
+local flyingEnabled = false
+local flyConnection = nil
+local espEnabled = false
+local espObjects = {}
+local speedBoostEnabled = false
+local originalSpeed = 16
+local desyncEnabled = false
+local platformConnection = nil
+local currentPlatform = nil
+
+-- ========== ANTI-RAGDOLL E PROTEÇÕES AUTOMÁTICAS ==========
+local function setupAntiRagdoll()
+    if character and character:FindFirstChild("Humanoid") then
+        local hum = character.Humanoid
+        
+        -- Anti-Ragdoll permanente
+        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+        
+        -- Proteção contra fling
+        game:GetService("RunService").Stepped:Connect(function()
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                local hrp = character.HumanoidRootPart
+                
+                -- Anti-Fling: Limitar velocidade extrema
+                if hrp.AssemblyLinearVelocity.Magnitude > 150 then
+                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                end
+                
+                -- Anti-Knockback
+                if hrp.Velocity.Magnitude > 100 then
+                    hrp.Velocity = Vector3.new(0, hrp.Velocity.Y, 0)
+                end
+            end
+        end)
+        
+        print("✅ Anti-Ragdoll e Proteções Ativadas!")
+    end
+end
+
+-- Aplicar proteções ao carregar
+setupAntiRagdoll()
+
+player.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    wait(0.5)
+    setupAntiRagdoll()
+end)
+
+-- Criar ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "PVPTrainerGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+-- Frame Principal
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 320, 0, 400)
+mainFrame.Position = UDim2.new(0.5, -160, 0.5, -200)
+mainFrame.BackgroundColor3 = Color3.fromRGB(45, 25, 75)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+-- Borda do Frame Principal
+local mainBorder = Instance.new("UIStroke")
+mainBorder.Color = Color3.fromRGB(138, 43, 226)
+mainBorder.Thickness = 3
+mainBorder.Parent = mainFrame
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 12)
+mainCorner.Parent = mainFrame
+
+-- Sombra/Glow Effect
+local mainShadow = Instance.new("ImageLabel")
+mainShadow.Name = "Shadow"
+mainShadow.BackgroundTransparency = 1
+mainShadow.Position = UDim2.new(0, -15, 0, -15)
+mainShadow.Size = UDim2.new(1, 30, 1, 30)
+mainShadow.Image = "rbxasset://textures/ui/GuiImagePlaceholder.png"
+mainShadow.ImageColor3 = Color3.fromRGB(138, 43, 226)
+mainShadow.ImageTransparency = 0.7
+mainShadow.ZIndex = 0
+mainShadow.Parent = mainFrame
+
+-- Frame do Título
+local titleFrame = Instance.new("Frame")
+titleFrame.Name = "TitleFrame"
+titleFrame.Size = UDim2.new(1, 0, 0, 50)
+titleFrame.Position = UDim2.new(0, 0, 0, 0)
+titleFrame.BackgroundColor3 = Color3.fromRGB(75, 35, 130)
+titleFrame.BorderSizePixel = 0
+titleFrame.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 12)
+titleCorner.Parent = titleFrame
+
+-- Efeito de brilho no título
+local titleGlow = Instance.new("UIStroke")
+titleGlow.Color = Color3.fromRGB(200, 100, 255)
+titleGlow.Thickness = 1
+titleGlow.Transparency = 0.5
+titleGlow.Parent = titleFrame
+
+-- Título
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -100, 1, 0)
+titleLabel.Position = UDim2.new(0, 10, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "🎮 PVP Trainer Op"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextSize = 16
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = titleFrame
+
+local titleLabel2 = Instance.new("TextLabel")
+titleLabel2.Size = UDim2.new(1, -100, 1, 0)
+titleLabel2.Position = UDim2.new(0, 10, 0, 0)
+titleLabel2.BackgroundTransparency = 1
+titleLabel2.Text = "By Branzz"
+titleLabel2.TextColor3 = Color3.fromRGB(200, 150, 255)
+titleLabel2.TextSize = 11
+titleLabel2.Font = Enum.Font.Gotham
+titleLabel2.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel2.TextYAlignment = Enum.TextYAlignment.Bottom
+titleLabel2.Parent = titleFrame
+
+-- Botão Minimizar/Maximizar
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Name = "MinimizeBtn"
+minimizeBtn.Size = UDim2.new(0, 30, 0, 30)
+minimizeBtn.Position = UDim2.new(1, -70, 0, 10)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+minimizeBtn.Text = "−"
+minimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minimizeBtn.TextSize = 20
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.Parent = titleFrame
+
+local minCorner = Instance.new("UICorner")
+minCorner.CornerRadius = UDim.new(0, 8)
+minCorner.Parent = minimizeBtn
+
+-- Botão Fechar
+local closeBtn = Instance.new("TextButton")
+closeBtn.Name = "CloseBtn"
+closeBtn.Size = UDim2.new(0, 30, 0, 30)
+closeBtn.Position = UDim2.new(1, -35, 0, 10)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+closeBtn.Text = "×"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.TextSize = 24
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Parent = titleFrame
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 8)
+closeCorner.Parent = closeBtn
+
+-- SCROLLING FRAME
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Name = "ScrollFrame"
+scrollFrame.Size = UDim2.new(1, -20, 1, -70)
+scrollFrame.Position = UDim2.new(0, 10, 0, 60)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.BorderSizePixel = 0
+scrollFrame.ScrollBarThickness = 6
+scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(138, 43, 226)
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 1100)
+scrollFrame.Parent = mainFrame
+
+-- Função para criar botão
+local function createButton(name, text, position, parent)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Size = UDim2.new(1, -10, 0, 45)
+    btn.Position = position
+    btn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 14
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = btn
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(138, 43, 226)
+    stroke.Thickness = 1.5
+    stroke.Parent = btn
+    
+    -- Efeito hover
+    btn.MouseEnter:Connect(function()
+        btn.BackgroundColor3 = Color3.fromRGB(120, 70, 190)
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        if not btn:FindFirstChild("Active") then
+            btn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        end
+    end)
+    
+    return btn
+end
+
+-- Função para criar seção
+local function createSection(title, position)
+    local section = Instance.new("Frame")
+    section.Size = UDim2.new(1, -10, 0, 30)
+    section.Position = position
+    section.BackgroundColor3 = Color3.fromRGB(60, 30, 100)
+    section.BorderSizePixel = 0
+    section.Parent = scrollFrame
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = section
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -10, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = title
+    label.TextColor3 = Color3.fromRGB(255, 200, 255)
+    label.TextSize = 14
+    label.Font = Enum.Font.GothamBold
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = section
+    
+    return section
+end
+
+-- ========== SEÇÃO 1: WAYPOINTS ==========
+createSection("📍 WAYPOINTS", UDim2.new(0, 5, 0, 5))
+
+local markBtn = createButton("MarkBtn", "📍 Mark Position", UDim2.new(0, 5, 0, 45), scrollFrame)
+
+local clearBtn = createButton("ClearBtn", "🗑️ Clear Position", UDim2.new(0, 5, 0, 100), scrollFrame)
+clearBtn.BackgroundColor3 = Color3.fromRGB(75, 45, 120)
+
+-- ========== SEÇÃO 2: MOVIMENTO AVANÇADO ==========
+createSection("🦅 MOVIMENTO AVANÇADO", UDim2.new(0, 5, 0, 160))
+
+local flyBtn = createButton("FlyBtn", "🦅 Vôo Livre: OFF", UDim2.new(0, 5, 0, 200), scrollFrame)
+
+local flyIndicator = Instance.new("Frame")
+flyIndicator.Name = "FlyIndicator"
+flyIndicator.Size = UDim2.new(0, 15, 0, 15)
+flyIndicator.Position = UDim2.new(0, 8, 0.5, -7.5)
+flyIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+flyIndicator.BorderSizePixel = 0
+flyIndicator.Parent = flyBtn
+
+local flyIndCorner = Instance.new("UICorner")
+flyIndCorner.CornerRadius = UDim.new(1, 0)
+flyIndCorner.Parent = flyIndicator
+
+local tpBtn = createButton("TPBtn", "🌏 TP to Position", UDim2.new(0, 5, 0, 255), scrollFrame)
+
+-- ========== SEÇÃO 3: SPEED BOOST ==========
+createSection("⚡ SPEED BOOST", UDim2.new(0, 5, 0, 315))
+
+local speedBtn = createButton("SpeedBtn", "⚡ Speed Boost: OFF", UDim2.new(0, 5, 0, 355), scrollFrame)
+
+-- Speed Controls
+local speedControlFrame = Instance.new("Frame")
+speedControlFrame.Size = UDim2.new(1, -10, 0, 45)
+speedControlFrame.Position = UDim2.new(0, 5, 0, 410)
+speedControlFrame.BackgroundTransparency = 1
+speedControlFrame.Parent = scrollFrame
+
+local speedMinusBtn = createButton("SpeedMinus", "−", UDim2.new(0, 0, 0, 0), speedControlFrame)
+speedMinusBtn.Size = UDim2.new(0, 45, 0, 45)
+
+local speedLabel = Instance.new("TextLabel")
+speedLabel.Size = UDim2.new(1, -100, 0, 45)
+speedLabel.Position = UDim2.new(0, 50, 0, 0)
+speedLabel.BackgroundColor3 = Color3.fromRGB(60, 30, 100)
+speedLabel.Text = "Speed: 16"
+speedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedLabel.TextSize = 14
+speedLabel.Font = Enum.Font.GothamBold
+speedLabel.Parent = speedControlFrame
+
+local speedLabelCorner = Instance.new("UICorner")
+speedLabelCorner.CornerRadius = UDim.new(0, 10)
+speedLabelCorner.Parent = speedLabel
+
+local speedPlusBtn = createButton("SpeedPlus", "+", UDim2.new(1, -45, 0, 0), speedControlFrame)
+speedPlusBtn.Size = UDim2.new(0, 45, 0, 45)
+
+-- ========== SEÇÃO 4: ESP ==========
+createSection("👁️ PLAYER ESP", UDim2.new(0, 5, 0, 470))
+
+local espBtn = createButton("ESPBtn", "👁️ ESP: OFF", UDim2.new(0, 5, 0, 510), scrollFrame)
+
+local espIndicator = Instance.new("Frame")
+espIndicator.Name = "ESPIndicator"
+espIndicator.Size = UDim2.new(0, 15, 0, 15)
+espIndicator.Position = UDim2.new(0, 8, 0.5, -7.5)
+espIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+espIndicator.BorderSizePixel = 0
+espIndicator.Parent = espBtn
+
+local espIndCorner = Instance.new("UICorner")
+espIndCorner.CornerRadius = UDim.new(1, 0)
+espIndCorner.Parent = espIndicator
+
+-- ========== SEÇÃO 5: TELEPORT RÁPIDO ==========
+createSection("🌟 TELEPORT RÁPIDO", UDim2.new(0, 5, 0, 570))
+
+local tpSpawnBtn = createButton("TPSpawn", "🏠 TP to Spawn", UDim2.new(0, 5, 0, 610), scrollFrame)
+tpSpawnBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 140)
+
+local tpRandomBtn = createButton("TPRandom", "🎲 TP Random Player", UDim2.new(0, 5, 0, 665), scrollFrame)
+tpRandomBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 140)
+
+-- ========== SEÇÃO 6: VISUAL EFFECTS ==========
+createSection("✨ EFEITOS VISUAIS", UDim2.new(0, 5, 0, 725))
+
+local trailBtn = createButton("TrailBtn", "✨ Flight Trail: OFF", UDim2.new(0, 5, 0, 765), scrollFrame)
+
+-- ========== SEÇÃO 7: DESYNC PROFISSIONAL ==========
+createSection("🌀 DESYNC PROFISSIONAL", UDim2.new(0, 5, 0, 825))
+
+local desyncBtn = createButton("DesyncBtn", "🌀 Desync: OFF", UDim2.new(0, 5, 0, 865), scrollFrame)
+
+local desyncIndicator = Instance.new("Frame")
+desyncIndicator.Name = "DesyncIndicator"
+desyncIndicator.Size = UDim2.new(0, 15, 0, 15)
+desyncIndicator.Position = UDim2.new(0, 8, 0.5, -7.5)
+desyncIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+desyncIndicator.BorderSizePixel = 0
+desyncIndicator.Parent = desyncBtn
+
+local desyncIndCorner = Instance.new("UICorner")
+desyncIndCorner.CornerRadius = UDim.new(1, 0)
+desyncIndCorner.Parent = desyncIndicator
+
+-- Info do Desync
+local desyncInfo = Instance.new("TextLabel")
+desyncInfo.Size = UDim2.new(1, -10, 0, 60)
+desyncInfo.Position = UDim2.new(0, 5, 0, 920)
+desyncInfo.BackgroundColor3 = Color3.fromRGB(60, 30, 100)
+desyncInfo.Text = "ℹ️ Desync faz você aparecer em outro lugar para outros jogadores. Perfeito para PVP!"
+desyncInfo.TextColor3 = Color3.fromRGB(200, 200, 255)
+desyncInfo.TextSize = 11
+desyncInfo.Font = Enum.Font.Gotham
+desyncInfo.TextWrapped = true
+desyncInfo.TextYAlignment = Enum.TextYAlignment.Top
+desyncInfo.Parent = scrollFrame
+
+local desyncInfoCorner = Instance.new("UICorner")
+desyncInfoCorner.CornerRadius = UDim.new(0, 8)
+desyncInfoCorner.Parent = desyncInfo
+
+-- ========== SEÇÃO 8: SERVER ==========
+createSection("🌐 SERVER", UDim2.new(0, 5, 0, 995))
+
+local serverHopBtn = createButton("ServerHop", "🔄 Server Hop", UDim2.new(0, 5, 0, 1035), scrollFrame)
+serverHopBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 140)
+
+-- ========== FUNÇÕES DE MINIMIZAR/MAXIMIZAR ==========
+local isMinimized = false
+
+minimizeBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    
+    if isMinimized then
+        mainFrame:TweenSize(UDim2.new(0, 320, 0, 50), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.3, true)
+        minimizeBtn.Text = "+"
+        scrollFrame.Visible = false
+    else
+        mainFrame:TweenSize(UDim2.new(0, 320, 0, 400), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.3, true)
+        minimizeBtn.Text = "−"
+        scrollFrame.Visible = true
+    end
+end)
+
+-- ========== FUNÇÃO DE FECHAR ==========
+closeBtn.MouseButton1Click:Connect(function()
+    for _, espObj in pairs(espObjects) do
+        if espObj then espObj:Destroy() end
+    end
+    
+    if flyConnection then
+        flyConnection:Disconnect()
+    end
+    
+    if platformConnection then
+        platformConnection:Disconnect()
+    end
+    
+    if currentPlatform then
+        currentPlatform:Destroy()
+    end
+    
+    if character and character:FindFirstChild("Humanoid") then
+        character.Humanoid.WalkSpeed = originalSpeed
+    end
+    
+    screenGui:Destroy()
+end)
+
+-- ========== FUNÇÃO 1: MARK POSITION ==========
+markBtn.MouseButton1Click:Connect(function()
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        markedPosition = character.HumanoidRootPart.Position
+        markBtn.Text = "✅ Position Marked!"
+        markBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        
+        -- Efeito visual no chão
+        local marker = Instance.new("Part")
+        marker.Shape = Enum.PartType.Cylinder
+        marker.Size = Vector3.new(0.5, 5, 5)
+        marker.CFrame = CFrame.new(markedPosition) * CFrame.Angles(0, 0, math.rad(90))
+        marker.Anchored = true
+        marker.CanCollide = false
+        marker.Material = Enum.Material.Neon
+        marker.BrickColor = BrickColor.new("Bright violet")
+        marker.Transparency = 0.3
+        marker.Parent = workspace
+        
+        game:GetService("Debris"):AddItem(marker, 3)
+        
+        wait(2)
+        markBtn.Text = "📍 Mark Position"
+        markBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+    end
+end)
+
+-- ========== FUNÇÃO 2: CLEAR POSITION ==========
+clearBtn.MouseButton1Click:Connect(function()
+    markedPosition = nil
+    clearBtn.Text = "✅ Position Cleared!"
+    clearBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+    
+    wait(2)
+    clearBtn.Text = "🗑️ Clear Position"
+    clearBtn.BackgroundColor3 = Color3.fromRGB(75, 45, 120)
+end)
+
+-- ========== FUNÇÃO 3: VÔO LIVRE MELHORADO ==========
+local function createFlightPlatform()
+    if currentPlatform then
+        currentPlatform:Destroy()
+    end
+    
+    local platform = Instance.new("Part")
+    platform.Name = "FlightPlatform"
+    platform.Size = Vector3.new(8, 0.5, 8)
+    platform.Anchored = true
+    platform.CanCollide = true
+    platform.Material = Enum.Material.Neon
+    platform.BrickColor = BrickColor.new("Bright violet")
+    platform.Transparency = 0.3
+    platform.Parent = workspace
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0.2, 0)
+    
+    currentPlatform = platform
+    return platform
+end
+
+flyBtn.MouseButton1Click:Connect(function()
+    flyingEnabled = not flyingEnabled
+    
+    if flyingEnabled then
+        flyBtn.Text = "🦅 Vôo Livre: ON"
+        flyBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        flyIndicator.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+        
+        local activeTag = Instance.new("BoolValue")
+        activeTag.Name = "Active"
+        activeTag.Parent = flyBtn
+        
+        local flightSpeed = 35
+        local lastPlatformTime = tick()
+        
+        if flyConnection then
+            flyConnection:Disconnect()
+        end
+        
+        if platformConnection then
+            platformConnection:Disconnect()
+        end
+        
+        flyConnection = game:GetService("RunService").RenderStepped:Connect(function()
+            if flyingEnabled and character and character:FindFirstChild("HumanoidRootPart") then
+                local camera = workspace.CurrentCamera
+                local rootPart = character.HumanoidRootPart
+                
+                if camera and rootPart then
+                    -- Movimento suave
+                    local direction = camera.CFrame.LookVector
+                    rootPart.Velocity = direction * flightSpeed
+                    rootPart.CFrame = CFrame.new(rootPart.Position, rootPart.Position + direction)
+                    
+                    -- Criar plataforma a cada 3 segundos
+                    if tick() - lastPlatformTime >= 3 then
+                        local platform = createFlightPlatform()
+                        platform.Position = rootPart.Position - Vector3.new(0, 4, 0)
+                        
+                        -- Remover após 7 segundos
+                        game:GetService("Debris"):AddItem(platform, 7)
+                        
+                        lastPlatformTime = tick()
+                    end
+                end
+            end
+        end)
+    else
+        flyBtn.Text = "🦅 Vôo Livre: OFF"
+        flyBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        flyIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        if flyBtn:FindFirstChild("Active") then
+            flyBtn.Active:Destroy()
+        end
+        
+        if flyConnection then
+            flyConnection:Disconnect()
+            flyConnection = nil
+        end
+        
+        if platformConnection then
+            platformConnection:Disconnect()
+            platformConnection = nil
+        end
+        
+        if currentPlatform then
+            currentPlatform:Destroy()
+            currentPlatform = nil
+        end
+        
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            character.HumanoidRootPart.Velocity = Vector3.new(0, 0, 0)
+        end
+    end
+end)
+
+-- ========== FUNÇÃO 4: TP POSITION MELHORADO ==========
+tpBtn.MouseButton1Click:Connect(function()
+    if not markedPosition then
+        tpBtn.Text = "⚠️ Nenhuma posição!"
+        tpBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        wait(2)
+        tpBtn.Text = "🌏 TP to Position"
+        tpBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        return
+    end
+    
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        local rootPart = character.HumanoidRootPart
+        
+        tpBtn.Text = "✈️ Subindo..."
+        tpBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+        
+        -- Desabilitar voo se estiver ativo
+        local wasFlying = flyingEnabled
+        if flyingEnabled then
+            flyingEnabled = false
+            if flyConnection then
+                flyConnection:Disconnect()
+                flyConnection = nil
+            end
+        end
+        
+        -- Subir para o céu
+        local startPos = rootPart.Position
+        local skyHeight = startPos.Y + 150
+        
+        -- Subir suavemente
+        for i = 1, 50 do
+            if character and rootPart then
+                rootPart.CFrame = CFrame.new(
+                    Vector3.new(startPos.X, startPos.Y + (i * 3), startPos.Z)
+                )
+                wait(0.02)
+            end
+        end
+        
+        tpBtn.Text = "✈️ Voando..."
+        
+        -- Voar até a posição com plataformas
+        local tpSpeed = 45
+        local targetPos = Vector3.new(markedPosition.X, skyHeight, markedPosition.Z)
+        local arrived = false
+        local lastPlatformTime = tick()
+        
+        local tpConnection = game:GetService("RunService").RenderStepped:Connect(function()
+            if character and rootPart then
+                local currentPos = rootPart.Position
+                local direction = (targetPos - currentPos).Unit
+                local distance = (targetPos - currentPos).Magnitude
+                
+                -- Verificar se chegou
+                if distance < 15 then
+                    arrived = true
+                    return
+                end
+                
+                -- Mover em direção à posição
+                rootPart.Velocity = direction * tpSpeed
+                rootPart.CFrame = CFrame.new(rootPart.Position, rootPart.Position + direction)
+                
+                -- Criar plataforma a cada 3 segundos
+                if tick() - lastPlatformTime >= 3 then
+                    local platform = createFlightPlatform()
+                    platform.Position = rootPart.Position - Vector3.new(0, 4, 0)
+                    game:GetService("Debris"):AddItem(platform, 7)
+                    lastPlatformTime = tick()
+                end
+            end
+        end)
+        
+        -- Esperar até chegar
+        while not arrived do
+            wait(0.1)
+        end
+        
+        tpConnection:Disconnect()
+        
+        tpBtn.Text = "✈️ Descendo..."
+        
+        -- Descer suavemente até o chão
+        rootPart.Velocity = Vector3.new(0, 0, 0)
+        
+        for i = 1, 50 do
+            if character and rootPart then
+                rootPart.CFrame = CFrame.new(
+                    Vector3.new(markedPosition.X, skyHeight - (i * 3), markedPosition.Z)
+                )
+                wait(0.02)
+            end
+        end
+        
+        -- Posição final
+        rootPart.CFrame = CFrame.new(markedPosition)
+        rootPart.Velocity = Vector3.new(0, 0, 0)
+        
+        tpBtn.Text = "✅ Chegou!"
+        tpBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        
+        wait(2)
+        tpBtn.Text = "🌏 TP to Position"
+        tpBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        
+        -- Restaurar voo se estava ativo
+        if wasFlying then
+            flyingEnabled = true
+            flyBtn.Text = "🦅 Vôo Livre: ON"
+            flyBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+            flyIndicator.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+            
+            local flightSpeed = 35
+            local lastPlatformTime = tick()
+            
+            flyConnection = game:GetService("RunService").RenderStepped:Connect(function()
+                if flyingEnabled and character and character:FindFirstChild("HumanoidRootPart") then
+                    local camera = workspace.CurrentCamera
+                    local rp = character.HumanoidRootPart
+                    
+                    if camera and rp then
+                        local direction = camera.CFrame.LookVector
+                        rp.Velocity = direction * flightSpeed
+                        rp.CFrame = CFrame.new(rp.Position, rp.Position + direction)
+                        
+                        if tick() - lastPlatformTime >= 3 then
+                            local platform = createFlightPlatform()
+                            platform.Position = rp.Position - Vector3.new(0, 4, 0)
+                            game:GetService("Debris"):AddItem(platform, 7)
+                            lastPlatformTime = tick()
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- ========== FUNÇÃO 5: SPEED BOOST ==========
+local currentSpeed = 16
+
+local function updateSpeed(newSpeed)
+    currentSpeed = math.clamp(newSpeed, 16, 200)
+    speedLabel.Text = "Speed: " .. currentSpeed
+    
+    if character and character:FindFirstChild("Humanoid") then
+        if speedBoostEnabled then
+            character.Humanoid.WalkSpeed = currentSpeed
+        end
+    end
+end
+
+speedBtn.MouseButton1Click:Connect(function()
+    speedBoostEnabled = not speedBoostEnabled
+    
+    if speedBoostEnabled then
+        speedBtn.Text = "⚡ Speed Boost: ON"
+        speedBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        
+        local activeTag = Instance.new("BoolValue")
+        activeTag.Name = "Active"
+        activeTag.Parent = speedBtn
+        
+        if character and character:FindFirstChild("Humanoid") then
+            character.Humanoid.WalkSpeed = currentSpeed
+        end
+    else
+        speedBtn.Text = "⚡ Speed Boost: OFF"
+        speedBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        
+        if speedBtn:FindFirstChild("Active") then
+            speedBtn.Active:Destroy()
+        end
+        
+        if character and character:FindFirstChild("Humanoid") then
+            character.Humanoid.WalkSpeed = originalSpeed
+        end
+    end
+end)
+
+speedMinusBtn.MouseButton1Click:Connect(function()
+    updateSpeed(currentSpeed - 8)
+end)
+
+speedPlusBtn.MouseButton1Click:Connect(function()
+    updateSpeed(currentSpeed + 8)
+end)
+
+-- ========== FUNÇÃO 6: ESP ==========
+local function createESP(targetPlayer)
+    if not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESP_Highlight"
+    highlight.FillColor = Color3.fromRGB(138, 43, 226)
+    highlight.OutlineColor = Color3.fromRGB(200, 100, 255)
+    highlight.FillTransparency = 0.5
+    highlight.OutlineTransparency = 0
+    highlight.Parent = targetPlayer.Character
+    
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESP_Billboard"
+    billboard.Adornee = targetPlayer.Character.HumanoidRootPart
+    billboard.Size = UDim2.new(0, 200, 0, 50)
+    billboard.StudsOffset = Vector3.new(0, 3, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = targetPlayer.Character.HumanoidRootPart
+    
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = targetPlayer.Name
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextSize = 18
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextStrokeTransparency = 0.5
+    nameLabel.Parent = billboard
+    
+    local distLabel = Instance.new("TextLabel")
+    distLabel.Size = UDim2.new(1, 0, 0.5, 0)
+    distLabel.Position = UDim2.new(0, 0, 0.5, 0)
+    distLabel.BackgroundTransparency = 1
+    distLabel.TextColor3 = Color3.fromRGB(200, 200, 200)
+    distLabel.TextSize = 14
+    distLabel.Font = Enum.Font.Gotham
+    distLabel.TextStrokeTransparency = 0.5
+    distLabel.Parent = billboard
+    
+    table.insert(espObjects, highlight)
+    table.insert(espObjects, billboard)
+    
+    spawn(function()
+        while espEnabled and targetPlayer.Character and billboard.Parent do
+            if character and character:FindFirstChild("HumanoidRootPart") and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                local dist = (character.HumanoidRootPart.Position - targetPlayer.Character.HumanoidRootPart.Position).Magnitude
+                distLabel.Text = string.format("%.1f studs", dist)
+            end
+            wait(0.1)
+        end
+    end)
+end
+
+espBtn.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    
+    if espEnabled then
+        espBtn.Text = "👁️ ESP: ON"
+        espBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        espIndicator.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+        
+        local activeTag = Instance.new("BoolValue")
+        activeTag.Name = "Active"
+        activeTag.Parent = espBtn
+        
+        for _, otherPlayer in pairs(game.Players:GetPlayers()) do
+            if otherPlayer ~= player then
+                createESP(otherPlayer)
+            end
+        end
+        
+        game.Players.PlayerAdded:Connect(function(newPlayer)
+            if espEnabled then
+                newPlayer.CharacterAdded:Connect(function()
+                    wait(1)
+                    if espEnabled then
+                        createESP(newPlayer)
+                    end
+                end)
+            end
+        end)
+    else
+        espBtn.Text = "👁️ ESP: OFF"
+        espBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        espIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        if espBtn:FindFirstChild("Active") then
+            espBtn.Active:Destroy()
+        end
+        
+        for _, espObj in pairs(espObjects) do
+            if espObj then
+                espObj:Destroy()
+            end
+        end
+        espObjects = {}
+    end
+end)
+
+-- ========== FUNÇÃO 7: TP TO SPAWN ==========
+tpSpawnBtn.MouseButton1Click:Connect(function()
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        local spawnLocation = workspace:FindFirstChild("SpawnLocation") or workspace:FindFirstChildOfClass("SpawnLocation")
+        
+        if spawnLocation then
+            character.HumanoidRootPart.CFrame = spawnLocation.CFrame + Vector3.new(0, 5, 0)
+            tpSpawnBtn.Text = "✅ Teleportado!"
+        else
+            character.HumanoidRootPart.CFrame = CFrame.new(0, 50, 0)
+            tpSpawnBtn.Text = "✅ TP para 0,50,0"
+        end
+        
+        tpSpawnBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        
+        wait(2)
+        tpSpawnBtn.Text = "🏠 TP to Spawn"
+        tpSpawnBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 140)
+    end
+end)
+
+-- ========== FUNÇÃO 8: TP RANDOM PLAYER ==========
+tpRandomBtn.MouseButton1Click:Connect(function()
+    local players = game.Players:GetPlayers()
+    local randomPlayer = nil
+    
+    for _, p in pairs(players) do
+        if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            randomPlayer = p
+            break
+        end
+    end
+    
+    if randomPlayer and character and character:FindFirstChild("HumanoidRootPart") then
+        character.HumanoidRootPart.CFrame = randomPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(5, 0, 0)
+        tpRandomBtn.Text = "✅ TP para " .. randomPlayer.Name
+        tpRandomBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        
+        wait(2)
+        tpRandomBtn.Text = "🎲 TP Random Player"
+        tpRandomBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 140)
+    else
+        tpRandomBtn.Text = "⚠️ Nenhum player!"
+        tpRandomBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        wait(2)
+        tpRandomBtn.Text = "🎲 TP Random Player"
+        tpRandomBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 140)
+    end
+end)
+
+-- ========== FUNÇÃO 9: FLIGHT TRAIL ==========
+local trailEnabled = false
+
+trailBtn.MouseButton1Click:Connect(function()
+    trailEnabled = not trailEnabled
+    
+    if trailEnabled then
+        trailBtn.Text = "✨ Flight Trail: ON"
+        trailBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        
+        local activeTag = Instance.new("BoolValue")
+        activeTag.Name = "Active"
+        activeTag.Parent = trailBtn
+        
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            local trail = Instance.new("Trail")
+            trail.Name = "FlightTrail"
+            trail.Color = ColorSequence.new(Color3.fromRGB(138, 43, 226), Color3.fromRGB(200, 100, 255))
+            trail.Transparency = NumberSequence.new(0.3, 1)
+            trail.Lifetime = 1.5
+            trail.MinLength = 0
+            trail.FaceCamera = true
+            trail.Enabled = true
+            
+            local attach0 = Instance.new("Attachment")
+            attach0.Name = "TrailAttach0"
+            attach0.Position = Vector3.new(-1, 0, 0)
+            attach0.Parent = character.HumanoidRootPart
+            
+            local attach1 = Instance.new("Attachment")
+            attach1.Name = "TrailAttach1"
+            attach1.Position = Vector3.new(1, 0, 0)
+            attach1.Parent = character.HumanoidRootPart
+            
+            trail.Attachment0 = attach0
+            trail.Attachment1 = attach1
+            trail.Parent = character.HumanoidRootPart
+            
+            local particles = Instance.new("ParticleEmitter")
+            particles.Name = "FlightParticles"
+            particles.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+            particles.Color = ColorSequence.new(Color3.fromRGB(138, 43, 226))
+            particles.Size = NumberSequence.new(0.5, 0)
+            particles.Transparency = NumberSequence.new(0, 1)
+            particles.Lifetime = NumberRange.new(0.5, 1)
+            particles.Rate = 50
+            particles.Speed = NumberRange.new(2, 5)
+            particles.SpreadAngle = Vector2.new(30, 30)
+            particles.Enabled = true
+            particles.Parent = character.HumanoidRootPart
+        end
+    else
+        trailBtn.Text = "✨ Flight Trail: OFF"
+        trailBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        
+        if trailBtn:FindFirstChild("Active") then
+            trailBtn.Active:Destroy()
+        end
+        
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            if character.HumanoidRootPart:FindFirstChild("FlightTrail") then
+                character.HumanoidRootPart.FlightTrail:Destroy()
+            end
+            if character.HumanoidRootPart:FindFirstChild("TrailAttach0") then
+                character.HumanoidRootPart.TrailAttach0:Destroy()
+            end
+            if character.HumanoidRootPart:FindFirstChild("TrailAttach1") then
+                character.HumanoidRootPart.TrailAttach1:Destroy()
+            end
+            if character.HumanoidRootPart:FindFirstChild("FlightParticles") then
+                character.HumanoidRootPart.FlightParticles:Destroy()
+            end
+        end
+    end
+end)
+
+-- ========== FUNÇÃO 10: DESYNC PROFISSIONAL ==========
+local FFlags = {
+    GameNetPVHeaderRotationalVelocityZeroCutoffExponent = -5000,
+    LargeReplicatorWrite5 = true,
+    LargeReplicatorEnabled9 = true,
+    AngularVelociryLimit = 360,
+    TimestepArbiterVelocityCriteriaThresholdTwoDt = 2147483646,
+    S2PhysicsSenderRate = 15000,
+    DisableDPIScale = true,
+    MaxDataPacketPerSend = 2147483647,
+    PhysicsSenderMaxBandwidthBps = 20000,
+    TimestepArbiterHumanoidLinearVelThreshold = 21,
+    MaxMissedWorldStepsRemembered = -2147483648,
+    PlayerHumanoidPropertyUpdateRestrict = true,
+    SimDefaultHumanoidTimestepMultiplier = 0,
+    StreamJobNOUVolumeLengthCap = 2147483647,
+    DebugSendDistInSteps = -2147483648,
+    GameNetDontSendRedundantNumTimes = 1,
+    CheckPVLinearVelocityIntegrateVsDeltaPositionThresholdPercent = 1,
+    CheckPVDifferencesForInterpolationMinVelThresholdStudsPerSecHundredth = 1,
+    LargeReplicatorSerializeRead3 = true,
+    ReplicationFocusNouExtentsSizeCutoffForPauseStuds = 2147483647,
+    CheckPVCachedVelThresholdPercent = 10,
+    CheckPVDifferencesForInterpolationMinRotVelThresholdRadsPerSecHundredth = 1,
+    GameNetDontSendRedundantDeltaPositionMillionth = 1,
+    InterpolationFrameVelocityThresholdMillionth = 5,
+    StreamJobNOUVolumeCap = 2147483647,
+    InterpolationFrameRotVelocityThresholdMillionth = 5,
+    CheckPVCachedRotVelThresholdPercent = 10,
+    WorldStepMax = 30,
+    InterpolationFramePositionThresholdMillionth = 5,
+    TimestepArbiterHumanoidTurningVelThreshold = 1,
+    SimOwnedNOUCountThresholdMillionth = 2147483647,
+    GameNetPVHeaderLinearVelocityZeroCutoffExponent = -5000,
+    NextGenReplicatorEnabledWrite4 = true,
+    TimestepArbiterOmegaThou = 1073741823,
+    MaxAcceptableUpdateDelay = 1,
+    LargeReplicatorSerializeWrite4 = true
+}
+
+local function respawnar(plr)
+    local rcdEnabled, wasHidden = false, false
+    if gethidden then
+        rcdEnabled, wasHidden = gethidden(workspace, 'RejectCharacterDeletions')
+            ~= Enum.RejectCharacterDeletions.Disabled
+    end
+
+    if rcdEnabled and replicatesignal then
+        replicatesignal(plr.ConnectDiedSignalBackend)
+        task.wait(game.Players.RespawnTime - 0.1)
+        replicatesignal(plr.Kill)
+    else
+        local char = plr.Character
+        local hum = char:FindFirstChildWhichIsA('Humanoid')
+        if hum then
+            hum:ChangeState(Enum.HumanoidStateType.Dead)
+        end
+        char:ClearAllChildren()
+        local newChar = Instance.new('Model')
+        newChar.Parent = workspace
+        plr.Character = newChar
+        task.wait()
+        plr.Character = char
+        newChar:Destroy()
+    end
+end
+
+desyncBtn.MouseButton1Click:Connect(function()
+    desyncEnabled = not desyncEnabled
+    
+    if desyncEnabled then
+        desyncBtn.Text = "🌀 Ativando Desync..."
+        desyncBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+        desyncIndicator.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+        
+        -- Aplicar FFlags
+        for name, value in pairs(FFlags) do
+            pcall(function()
+                if setfflag then
+                    setfflag(tostring(name), tostring(value))
+                end
+            end)
+        end
+        
+        -- Respawnar com desync
+        respawnar(player)
+        
+        wait(2)
+        
+        desyncBtn.Text = "🌀 Desync: ON"
+        desyncBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        desyncIndicator.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+        
+        local activeTag = Instance.new("BoolValue")
+        activeTag.Name = "Active"
+        activeTag.Parent = desyncBtn
+        
+        print("✅ Desync by Branzz ativado!")
+    else
+        desyncBtn.Text = "🌀 Desync: OFF"
+        desyncBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        desyncIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        if desyncBtn:FindFirstChild("Active") then
+            desyncBtn.Active:Destroy()
+        end
+        
+        -- Respawnar normal
+        if character and character:FindFirstChild("Humanoid") then
+            character.Humanoid:ChangeState(Enum.HumanoidStateType.Dead)
+        end
+    end
+end)
+
+-- ========== FUNÇÃO 11: SERVER HOP ==========
+serverHopBtn.MouseButton1Click:Connect(function()
+    serverHopBtn.Text = "🔄 Procurando servidor..."
+    serverHopBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+    
+    local TeleportService = game:GetService("TeleportService")
+    local HttpService = game:GetService("HttpService")
+    
+    local success, result = pcall(function()
+        local servers = HttpService:JSONDecode(game:HttpGet("https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100"))
+        
+        if servers and servers.data then
+            for _, server in pairs(servers.data) do
+                if server.playing < server.maxPlayers and server.id ~= game.JobId then
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, player)
+                    return
+                end
+            end
+        end
+    end)
+    
+    if not success then
+        serverHopBtn.Text = "⚠️ Erro ao trocar!"
+        serverHopBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        wait(2)
+        serverHopBtn.Text = "🔄 Server Hop"
+        serverHopBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 140)
+    end
+end)
+
+-- ========== ATUALIZAR CHARACTER ==========
+player.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    
+    wait(0.5)
+    setupAntiRagdoll()
+    
+    if character:FindFirstChild("Humanoid") then
+        originalSpeed = character.Humanoid.WalkSpeed
+    end
+    
+    if speedBoostEnabled then
+        wait(1)
+        if character:FindFirstChild("Humanoid") then
+            character.Humanoid.WalkSpeed = currentSpeed
+        end
+    end
+    
+    if desyncEnabled then
+        desyncEnabled = false
+        desyncBtn.Text = "🌀 Desync: OFF"
+        desyncBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        desyncIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        if desyncBtn:FindFirstChild("Active") then
+            desyncBtn.Active:Destroy()
+        end
+    end
+end)
+
+-- ========== ANIMAÇÃO DE ENTRADA ==========
+mainFrame.Size = UDim2.new(0, 0, 0, 0)
+mainFrame:TweenSize(UDim2.new(0, 320, 0, 400), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
+
+print("✅ PVP Trainer Op By Branzz - VERSÃO AVANÇADA carregada!")
+print("🛡️ Anti-Ragdoll, Anti-Fling e Anti-Knockback ativados automaticamente!")
